@@ -8,18 +8,19 @@ const app = express();
 
 const { authRouter } = require('./api/auth.router');
 const { authMiddleware } = require('./middleware/auth.middleware');
+const { profileRouter } = require('./api/profile.router');
 
 app.use(express.json());
 app.use('/auth', authRouter);
+app.use('/profile', authMiddleware, profileRouter);
 
 app.get('/', (req, res) => {
   res.send('Auth app works');
 });
 
-app.get('/profile', authMiddleware, (req, res) => {
-  return res.status(200).json({
-    message: 'Profile доступний',
-    user: req.user,
+app.use((req, res) => {
+  return res.status(404).json({
+    message: 'Page not found',
   });
 });
 

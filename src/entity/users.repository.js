@@ -28,10 +28,65 @@ function activate(email) {
   });
 }
 
+function getById(id) {
+  return db.user.findUnique({
+    where: { id },
+  });
+}
+
+function saveResetToken(email, resetToken) {
+  return db.user.update({
+    where: { email },
+    data: {
+      resetToken,
+    },
+  });
+}
+
+function getByResetToken(resetToken) {
+  return db.user.findFirst({
+    where: { resetToken },
+  });
+}
+
+function updatePassword(id, password) {
+  return db.user.update({
+    where: { id },
+    data: {
+      password,
+      resetToken: null,
+    },
+  });
+}
+
+function updateName(id, name) {
+  return db.user.update({
+    where: { id },
+    data: {
+      name,
+    },
+  });
+}
+
+function updateEmail(id, email) {
+  return db.user.update({
+    where: { id },
+    data: {
+      email,
+    },
+  });
+}
+
 module.exports = {
   usersRepository: {
     create,
     getByEmail,
+    getById,
     activate,
+    saveResetToken,
+    getByResetToken,
+    updatePassword,
+    updateName,
+    updateEmail,
   },
 };

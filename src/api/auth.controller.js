@@ -1,30 +1,14 @@
 'use strict';
 
+const nodeCrypto = require('crypto');
 const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
 const { usersRepository } = require('../entity/users.repository');
-
-function createAccessToken(user) {
-  return jwt.sign(
-    {
-      userId: user.id,
-      email: user.email,
-    },
-    process.env.JWT_ACCESS_SECRET || 'access_secret',
-    { expiresIn: '15m' },
-  );
-}
-
-function createRefreshToken(user) {
-  return jwt.sign(
-    {
-      userId: user.id,
-      email: user.email,
-    },
-    process.env.JWT_REFRESH_SECRET || 'refresh_secret',
-    { expiresIn: '7d' },
-  );
-}
+const { sendEmail } = require('../utils/email');
+const {
+  PASSWORD_RULES_MESSAGE,
+  isPasswordValid,
+} = require('../utils/password');
+const { generateAccessToken, generateRefreshToken } = require('../utils/token');
 
 async function register(req, res) {
   try {
@@ -36,9 +20,9 @@ async function register(req, res) {
       });
     }
 
-    if (password.length < 6) {
+    if (!isPasswordValid(password)) {
       return res.status(400).json({
-        message: 'Password must be at least 6 characters',
+        message: PASSWORD_RULES_MESSAGE,
       });
     }
 
@@ -51,7 +35,7 @@ async function register(req, res) {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const activationToken = Math.random().toString(36).slice(2);
+    const activationToken = nodeCrypto.randomBytes(24).toString('hex');
 
     const user = await usersRepository.create(
       name,
@@ -60,10 +44,17 @@ async function register(req, res) {
       activationToken,
     );
 
-    process.stdout.write(`Activation token for ${email}: ${activationToken}\n`);
+    await sendEmail({
+      to: email,
+      subject: 'Activate your account',
+      text:
+        'Welcome to Auth App.\n\n' +
+        `Use this activation token to activate your account: ${activationToken}`,
+    });
 
     return res.status(201).json({
-      message: 'User created. Check console for activation token',
+      message: `User created. Password rules: ${PASSWORD_RULES_MESSAGE}`,
+      activationEmailSent: true,
       user: {
         id: user.id,
         name: user.name,
@@ -105,8 +96,15 @@ async function activate(req, res) {
 
     await usersRepository.activate(email);
 
+    const activatedUser = await usersRepository.getByEmail(email);
+    const accessToken = generateAccessToken(activatedUser);
+    const refreshToken = generateRefreshToken(activatedUser);
+
     return res.status(200).json({
       message: 'Account activated successfully',
+      redirectTo: '/profile',
+      accessToken,
+      refreshToken,
     });
   } catch (error) {
     process.stderr.write(`${error}\n`);
@@ -135,9 +133,9 @@ async function login(req, res) {
       });
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    const isPasswordCorrect = await bcrypt.compare(password, user.password);
 
-    if (!isPasswordValid) {
+    if (!isPasswordCorrect) {
       return res.status(400).json({
         message: 'Invalid password',
       });
@@ -149,11 +147,12 @@ async function login(req, res) {
       });
     }
 
-    const accessToken = createAccessToken(user);
-    const refreshToken = createRefreshToken(user);
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
 
     return res.status(200).json({
       message: 'Login successful',
+      redirectTo: '/profile',
       user: {
         id: user.id,
         name: user.name,
@@ -175,6 +174,106 @@ async function login(req, res) {
 async function logout(req, res) {
   return res.status(200).json({
     message: 'Logout successful',
+    redirectTo: '/auth/login',
+  });
+}
+
+async function requestPasswordReset(req, res) {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        message: 'Email is required',
+      });
+    }
+
+    const user = await usersRepository.getByEmail(email);
+
+    if (user) {
+      const resetToken = nodeCrypto.randomBytes(24).toString('hex');
+
+      await usersRepository.saveResetToken(email, resetToken);
+
+      await sendEmail({
+        to: email,
+        subject: 'Reset your password',
+        text:
+          'We received a password reset request.\n\n' +
+          `Use this reset token to continue: ${resetToken}`,
+      });
+    }
+
+    return res.status(200).json({
+      message: 'If this email exists, a reset email has been sent',
+      redirectTo: '/auth/password-reset/sent',
+    });
+  } catch (error) {
+    process.stderr.write(`${error}\n`);
+
+    return res.status(500).json({
+      message: 'Server error',
+    });
+  }
+}
+
+async function confirmPasswordReset(req, res) {
+  try {
+    const { resetToken, password, confirmation } = req.body;
+
+    if (!resetToken || !password || !confirmation) {
+      return res.status(400).json({
+        message: 'Reset token, password and confirmation are required',
+      });
+    }
+
+    if (password !== confirmation) {
+      return res.status(400).json({
+        message: 'Password confirmation must match password',
+      });
+    }
+
+    if (!isPasswordValid(password)) {
+      return res.status(400).json({
+        message: PASSWORD_RULES_MESSAGE,
+      });
+    }
+
+    const user = await usersRepository.getByResetToken(resetToken);
+
+    if (!user) {
+      return res.status(404).json({
+        message: 'Invalid reset token',
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await usersRepository.updatePassword(user.id, hashedPassword);
+
+    return res.status(200).json({
+      message: 'Password reset successful',
+      redirectTo: '/auth/login',
+    });
+  } catch (error) {
+    process.stderr.write(`${error}\n`);
+
+    return res.status(500).json({
+      message: 'Server error',
+    });
+  }
+}
+
+async function getResetEmailSentPage(req, res) {
+  return res.status(200).json({
+    message: 'Reset password email sent page',
+  });
+}
+
+async function getResetSuccessPage(req, res) {
+  return res.status(200).json({
+    message: 'Password reset success page',
+    redirectTo: '/auth/login',
   });
 }
 
@@ -184,5 +283,9 @@ module.exports = {
     activate,
     login,
     logout,
+    requestPasswordReset,
+    confirmPasswordReset,
+    getResetEmailSentPage,
+    getResetSuccessPage,
   },
 };

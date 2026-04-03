@@ -8,7 +8,7 @@ function generateAccessToken(user) {
       userId: user.id,
       email: user.email,
     },
-    process.env.JWT_ACCESS_SECRET,
+    process.env.JWT_ACCESS_SECRET || 'access_secret',
     { expiresIn: '15m' },
   );
 }
@@ -19,7 +19,7 @@ function generateRefreshToken(user) {
       userId: user.id,
       email: user.email,
     },
-    process.env.JWT_REFRESH_SECRET,
+    process.env.JWT_REFRESH_SECRET || 'refresh_secret',
     { expiresIn: '7d' },
   );
 }
