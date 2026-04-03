@@ -253,7 +253,7 @@ async function confirmPasswordReset(req, res) {
 
     return res.status(200).json({
       message: 'Password reset successful',
-      redirectTo: '/auth/login',
+      redirectTo: '/auth/password-reset/success',
     });
   } catch (error) {
     process.stderr.write(`${error}\n`);
@@ -273,6 +273,7 @@ async function getResetEmailSentPage(req, res) {
 async function getResetSuccessPage(req, res) {
   return res.status(200).json({
     message: 'Password reset success page',
+    loginLink: '/auth/login',
     redirectTo: '/auth/login',
   });
 }
